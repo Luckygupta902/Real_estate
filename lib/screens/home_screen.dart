@@ -1,613 +1,366 @@
 import 'package:flutter/material.dart';
 
-class HomeScreen extends StatelessWidget {
+import '../models/property.dart';
+import '../services/property_service.dart';
+import '../services/social_service.dart';
+import '../services/auth_service.dart';
+
+import 'add_property_screen.dart';
+import 'leads_screen.dart';
+import 'login_screen.dart';
+import 'register_screen.dart';
+import 'property_detail_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final AuthService _auth = AuthService();
+  final PropertyService _properties = PropertyService();
+  final SocialService _social = SocialService();
+
+  bool _loggedIn = false;
+
+  late Future<List<Property>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _future = _properties.getAllProperties();
+
+    // Check whether the user is already logged in.
+    _checkLogin();
+  }
+
+  Future<void> _checkLogin() async {
+    try {
+      final loggedIn = await _auth.isLoggedIn();
+
+      if (!mounted) return;
+
+      setState(() {
+        _loggedIn = loggedIn;
+      });
+    } catch (e) {
+      debugPrint('Login status check failed: $e');
+    }
+  }
+
+  Future<void> _refresh() async {
+    final next = _properties.getAllProperties();
+
+    if (!mounted) return;
+
+    setState(() {
+      _future = next;
+    });
+
+    try {
+      await next;
+    } catch (e) {
+      debugPrint('Property refresh failed: $e');
+    }
+  }
+
+  String money(double? price) {
+    if (price == null) {
+      return 'Price not available';
+    }
+
+    return '₹${price.toStringAsFixed(0)}';
+  }
+
+  Future<void> _openLogin() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+      ),
+    );
+
+    if (!mounted) return;
+
+    await _checkLogin();
+
+    if (result == true) {
+      await _refresh();
+    }
+  }
+
+  Future<void> _openRegister() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RegisterScreen(),
+      ),
+    );
+
+    if (!mounted) return;
+
+    await _checkLogin();
+  }
+
+  Future<void> _openAddProperty() async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AddPropertyScreen(),
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (created == true) {
+      await _refresh();
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await _auth.logout();
+
+      if (!mounted) return;
+
+      setState(() {
+        _loggedIn = false;
+      });
+
+      await _refresh();
+    } catch (e) {
+      debugPrint('Logout failed: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not log out. Please try again.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Real Estate',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.abc),
-          onPressed: () {},
-        ),
+        title: const Text('Discover Properties'),
         actions: [
-          TextButton(
-            onPressed: () {},
-            child: const Text(
-              'login',
-              style: TextStyle(color: Colors.white),
+          if (!_loggedIn) ...[
+            TextButton(
+              onPressed: _openLogin,
+              child: const Text('Login'),
             ),
-          ),
-          TextButton(
-            onPressed: () {},
-            child: const Text(
-              'Registration',
-              style: TextStyle(color: Colors.white),
+            TextButton(
+              onPressed: _openRegister,
+              child: const Text('Register'),
             ),
-          ),
+          ] else ...[
+            IconButton(
+              tooltip: 'Add property',
+              icon: const Icon(Icons.add_home_work),
+              onPressed: _openAddProperty,
+            ),
+            IconButton(
+              tooltip: 'Leads',
+              icon: const Icon(Icons.assignment),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LeadsScreen(),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Logout',
+              icon: const Icon(Icons.logout),
+              onPressed: _logout,
+            ),
+          ],
         ],
-        backgroundColor: Colors.blue,
       ),
-      body: SingleChildScrollView(
-          child: Column(
-        children: [
-          Container(
-            height: 40,
-            margin: EdgeInsets.only(
-              left: 10,
-              right: 10,
-              top: 10,
-            ),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Serch',
-                hintStyle: const TextStyle(
-                  color: Color(0xFFB6D8EA),
-                ),
-                suffixIcon: const Icon(
-                  Icons.search,
-                  color: Color(0xFFB6D8EA),
-                ),
-                filled: true,
-                fillColor: Colors.black,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
 
-          // TextView
-          /*  const Text(
-            'Real Estate Home',
-            style: TextStyle(
-              fontSize: 25,
-              fontWeight: FontWeight.bold,
-            ),
-          ), */
-          Padding(
-            padding: const EdgeInsets.only(
-              left: 10,
-              top: 5,
-              bottom: 5,
-            ),
-            child: const Text(
-              'Shope by Categories',
-              style: TextStyle(
-                color: Colors.black,
-                fontSize: 16,
+      body: FutureBuilder<List<Property>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Could not load properties'),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          SizedBox(
-            height: 100,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                categoryItem('Tarot'),
-                categoryItem('Rudraksha'),
-                categoryItem('Gemstone'),
-                categoryItem('Jewellery'),
-              ],
-            ),
-          ),
-          SizedBox(
-            height: 150,
-            child: PageView(
-              children: [
-                Container(
-                  margin: EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: Colors.blueGrey,
+            );
+          }
+
+          final List<Property> properties = snapshot.data ?? [];
+
+          if (properties.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 200),
+                  Center(
+                    child: Text('No properties available yet'),
                   ),
-                  child: const Center(
-                    child: Text(
-                      'Banner 1',
-                      style: TextStyle(
-                          backgroundColor: Color(0xFFB6D8EA), fontSize: 24),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: properties.length,
+              itemBuilder: (context, index) {
+                final p = properties[index];
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 18),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PropertyDetailScreen(
+                            property: p,
+                          ),
+                        ),
+                      );
+
+                      if (mounted) {
+                        await _refresh();
+                      }
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 150,
+                          width: double.infinity,
+                          color: Colors.teal.shade50,
+                          child: const Icon(
+                            Icons.home_work_outlined,
+                            size: 65,
+                            color: Colors.teal,
+                          ),
+                        ),
+
+                        Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p.title,
+                                style: const TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+
+                              const SizedBox(height: 6),
+
+                              Text(
+                                money(p.price),
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal,
+                                ),
+                              ),
+
+                              const SizedBox(height: 6),
+
+                              Text(
+                                '${p.city ?? ''}, ${p.state ?? ''}',
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              Wrap(
+                                spacing: 16,
+                                runSpacing: 8,
+                                children: [
+                                  if (p.bedrooms != null)
+                                    Text('🛏 ${p.bedrooms} beds'),
+                                  if (p.bathrooms != null)
+                                    Text('🛁 ${p.bathrooms} baths'),
+                                  if (p.area != null)
+                                    Text('${p.area} area'),
+                                ],
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              if (p.id != null)
+                                FutureBuilder<int>(
+                                  future: _social.getLikeCount(p.id!),
+                                  builder: (context, count) {
+                                    return Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.favorite_border,
+                                          color: Colors.red,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          count.hasError
+                                              ? 'Likes unavailable'
+                                              : count.hasData
+                                                  ? '${count.data} likes'
+                                                  : 'Loading likes...',
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                Container(
-                  margin: EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      color: Colors.blueGrey),
-                  child: const Center(
-                    child: Text(
-                      'Banner 2',
-                      style:
-                          TextStyle(backgroundColor: Colors.blue, fontSize: 24),
-                    ),
-                  ),
-                ),
-                Container(
-                  margin: EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      color: Colors.blueGrey),
-                  child: const Center(
-                    child: Text(
-                      "Banner 3",
-                      style: TextStyle(
-                        backgroundColor: Colors.brown,
-                        fontSize: 24,
-                      ),
-                    ),
-                  ),
-                )
-              ],
+                );
+              },
             ),
-          ),
-          Center(
-            child: Row(
-              children: [
-                Container(
-                  height: 5,
-                  width: 25,
-                  margin: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(5)),
-                ),
-                Container(
-                  height: 5,
-                  width: 25,
-                  margin: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(5)),
-                ),
-                Container(
-                  height: 5,
-                  width: 25,
-                  margin: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(5)),
-                )
-              ],
-            ),
-          ),
-
-// Recommended for you
-          Padding(
-            padding: const EdgeInsets.only(
-              left: 10,
-              top: 5,
-              bottom: 5,
-            ),
-            child: const Text(
-              'Recommended for you',
-              style: TextStyle(
-                color: Colors.black,
-                fontSize: 16,
-              ),
-            ),
-          ),
-
-// Horizontal grid
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // =========================
-              // Main Card
-              // =========================
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // =========================
-                      // Product Image
-                      // =========================
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.asset(
-                          'assets/tarotcard.png',
-                          width: 180,
-                          height: 239,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      // =========================
-                      // Product Name
-                      // =========================
-                      const SizedBox(
-                        width: 180,
-                        child: Text(
-                          'The Illuminated Tarot: 78 Cards for Divination '
-                          '(The Illuminated Art Series)',
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Color(0xFF006497),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      // =========================
-                      // Rating
-                      // =========================
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.star,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                          const Icon(
-                            Icons.star,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                          const Icon(
-                            Icons.star,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                          const Icon(
-                            Icons.star_half,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                          const Icon(
-                            Icons.star_border,
-                            size: 18,
-                            color: Colors.orange,
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      // =========================
-                      // Price + Discount
-                      // =========================
-                      Row(
-                        children: [
-                          // Rupee + Price
-                          const Icon(
-                            Icons.currency_rupee,
-                            size: 16,
-                            color: Color(0xFF006497),
-                          ),
-
-                          const Text(
-                            '1,250',
-                            style: TextStyle(
-                              color: Color(0xFF006497),
-                            ),
-                          ),
-
-                          const SizedBox(width: 5),
-
-                          // Strike price
-                          const Text(
-                            '1,500',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-
-                          const SizedBox(width: 5),
-
-                          // 16%
-                          const Text(
-                            '16%',
-                            style: TextStyle(
-                              color: Colors.green,
-                            ),
-                          ),
-
-                          const SizedBox(width: 2),
-
-                          // OFF
-                          const Text(
-                            'OFF',
-                            style: TextStyle(
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-// Main vertical LinearLayout
-          Column(
-            children: [
-              // =========================
-              // Main CardView
-              // =========================
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // =========================
-                      // Image CardView
-                      // =========================
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.asset(
-                          'assets/evileyforrelationship.png',
-                          height: 90,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      // =========================
-                      // Product Name
-                      // =========================
-                      const SizedBox(
-                        width: 180,
-                        child: Text(
-                          'EvilEye for Relationship',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Color(0xFF006497),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 3),
-
-                      // =========================
-                      // Rating
-                      // =========================
-                      Padding(
-                        padding: const EdgeInsets.only(left: 5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star_half,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star_border,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 3),
-
-                      // =========================
-                      // Price + Strike Price
-                      // =========================
-                      Padding(
-                        padding: const EdgeInsets.only(left: 5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Rupee icon
-                            const Icon(
-                              Icons.currency_rupee,
-                              size: 16,
-                              color: Color(0xFF006497),
-                            ),
-
-                            // Price
-                            const Text(
-                              '1,250',
-                              style: TextStyle(
-                                color: Color(0xFF006497),
-                              ),
-                            ),
-
-                            const SizedBox(width: 5),
-
-                            // Strike price
-                            const Text(
-                              '1,500',
-                              style: TextStyle(
-                                color: Color(0xFF41403C),
-                                decoration: TextDecoration.lineThrough,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-// Main vertical LinearLayout
-          Column(
-            children: [
-              // =========================
-              // Main CardView
-              // =========================
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // =========================
-                      // Image CardView
-                      // =========================
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.asset(
-                          'assets/evileyforrelationship.png',
-                          height: 90,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-
-                      const SizedBox(height: 5),
-
-                      // =========================
-                      // Product Name
-                      // =========================
-                      const SizedBox(
-                        width: 180,
-                        child: Text(
-                          'EvilEye for Relationship',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Color(0xFF006497),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 3),
-
-                      // =========================
-                      // Rating
-                      // =========================
-                      Padding(
-                        padding: const EdgeInsets.only(left: 5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star_half,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const Icon(
-                              Icons.star_border,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 3),
-
-                      // =========================
-                      // Price + Strike Price
-                      // =========================
-                      Padding(
-                        padding: const EdgeInsets.only(left: 5),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Rupee icon
-                            const Icon(
-                              Icons.currency_rupee,
-                              size: 16,
-                              color: Color(0xFF006497),
-                            ),
-
-                            // Price
-                            const Text(
-                              '1,250',
-                              style: TextStyle(
-                                color: Color(0xFF006497),
-                              ),
-                            ),
-
-                            const SizedBox(width: 5),
-
-                            // Strike price
-                            const Text(
-                              '1,500',
-                              style: TextStyle(
-                                color: Color(0xFF41403C),
-                                decoration: TextDecoration.lineThrough,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      )),
-    );
-  }
-
-  Widget categoryItem(String s) {
-    return Container(
-      width: 100,
-      margin: const EdgeInsets.symmetric(horizontal: 5),
-      child: Card(
-        child: Center(
-          child: Text(
-            s,
-            textAlign: TextAlign.center,
-          ),
-        ),
+          );
+        },
       ),
     );
   }
